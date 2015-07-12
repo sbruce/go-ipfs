@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sort"
 	"strings"
 
 	cmds "github.com/ipfs/go-ipfs/commands"
 	files "github.com/ipfs/go-ipfs/commands/files"
 	u "github.com/ipfs/go-ipfs/util"
+	levenshtein "github.com/texttheater/golang-levenshtein/levenshtein"
 )
 
 // Parse parses the input commandline string (cmd, flags, and args).
@@ -41,7 +43,7 @@ func Parse(input []string, stdin *os.File, root *cmds.Command) (cmds.Request, *c
 		}
 	}
 
-	stringArgs, fileArgs, err := parseArgs(stringVals, stdin, cmd.Arguments, recursive)
+	stringArgs, fileArgs, err := parseArgs(stringVals, stdin, cmd.Arguments, recursive, root)
 	if err != nil {
 		return req, cmd, path, err
 	}
@@ -196,7 +198,7 @@ func parseOpts(args []string, root *cmds.Command) (
 	return
 }
 
-func parseArgs(inputs []string, stdin *os.File, argDefs []cmds.Argument, recursive bool) ([]string, []files.File, error) {
+func parseArgs(inputs []string, stdin *os.File, argDefs []cmds.Argument, recursive bool, root *cmds.Command) ([]string, []files.File, error) {
 	// ignore stdin on Windows
 	if runtime.GOOS == "windows" {
 		stdin = nil
@@ -227,11 +229,61 @@ func parseArgs(inputs []string, stdin *os.File, argDefs []cmds.Argument, recursi
 		numInputs += 1
 	}
 
+	searchUnknownCmd := func(args []string) []string {
+		arg := args[0]
+		var suggestions []string
+		sortableSuggestions := make(suggestionSlice, 0)
+		var sFinal []string
+		const MIN_LEVENSHTEIN = 3
+
+		var options levenshtein.Options = levenshtein.Options{
+			InsCost: 1,
+			DelCost: 3,
+			SubCost: 2,
+			Matches: func(sourceCharacter rune, targetCharacter rune) bool {
+				return sourceCharacter == targetCharacter
+			},
+		}
+
+		// Start with a simple strings.Contains check
+		for name, _ := range root.Subcommands {
+			if strings.Contains(arg, name) {
+				suggestions = append(suggestions, name)
+			}
+		}
+
+		// If the string compare returns a match, return
+		if len(suggestions) > 0 {
+			return suggestions
+		}
+
+		for name, _ := range root.Subcommands {
+			lev := levenshtein.DistanceForStrings([]rune(arg), []rune(name), options)
+			if lev <= MIN_LEVENSHTEIN {
+				sortableSuggestions = append(sortableSuggestions, &suggestion{name, lev})
+			}
+		}
+		sort.Sort(sortableSuggestions)
+
+		for _, j := range sortableSuggestions {
+			sFinal = append(sFinal, j.cmd)
+		}
+		return sFinal
+	}
+
 	// if we have more arg values provided than argument definitions,
 	// and the last arg definition is not variadic (or there are no definitions), return an error
 	notVariadic := len(argDefs) == 0 || !argDefs[len(argDefs)-1].Variadic
 	if notVariadic && len(inputs) > len(argDefs) {
-		return nil, nil, fmt.Errorf("Expected %v arguments, got %v: %v", len(argDefs), len(inputs), inputs)
+		suggestions := searchUnknownCmd(inputs)
+
+		if len(suggestions) > 1 {
+			return nil, nil, fmt.Errorf("Unknown Command \"%v\"\n\nDid you mean any of these?\n\n\t%s", inputs[0], strings.Join(suggestions, "\n\t"))
+		} else if len(suggestions) > 0 {
+			return nil, nil, fmt.Errorf("Unknown Command \"%v\"\n\nDid you mean this?\n\n\t%s", inputs[0], suggestions[0])
+		} else {
+			return nil, nil, fmt.Errorf("Unknown Command \"%v\"\n", inputs[0])
+		}
 	}
 
 	stringArgs := make([]string, 0, numInputs)
@@ -382,4 +434,24 @@ func isTerminal(stdin *os.File) (bool, error) {
 
 	// if stdin is a CharDevice, return true
 	return ((stat.Mode() & os.ModeCharDevice) != 0), nil
+}
+
+// Make a custom slice that can be sorted by its levenshtein value
+type suggestionSlice []*suggestion
+
+type suggestion struct {
+	cmd         string
+	levenshtein int
+}
+
+func (s suggestionSlice) Len() int {
+	return len(s)
+}
+
+func (s suggestionSlice) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s suggestionSlice) Less(i, j int) bool {
+	return s[i].levenshtein < s[j].levenshtein
 }

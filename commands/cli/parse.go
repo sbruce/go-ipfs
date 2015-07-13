@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sort"
 
 	cmds "github.com/ipfs/go-ipfs/commands"
 	files "github.com/ipfs/go-ipfs/commands/files"
@@ -231,6 +232,7 @@ func parseArgs(inputs []string, stdin *os.File, argDefs []cmds.Argument, recursi
 
 	searchUnknownCmd := func(args []string) (suggestions []string, err error) {
 		arg := args[0]
+		s2 := make(suggestionSlice, 0)
 		const MIN_LEVENSHTEIN = 3
 
 		var options levenshtein.Options = levenshtein.Options{
@@ -258,12 +260,20 @@ func parseArgs(inputs []string, stdin *os.File, argDefs []cmds.Argument, recursi
 			i := levenshtein.DistanceForStrings([]rune(arg), []rune(name), options)
 			// fmt.Printf("Comparing %s to %s: %d\n", arg, name, i)
 			if i <= MIN_LEVENSHTEIN {
-				suggestions = append(suggestions, name)
+				// suggestions = append(suggestions, name)
+				s2 =  append(s2, &suggestion{name, i})
 			}
+		}
+		sort.Sort(s2)
+
+		var sFinal []string
+
+		for _, j := range(s2) {
+			sFinal = append(sFinal, j.cmd)
 		}
 		// TODO Sort the suggestions based on levenshtein 
 		// IDEA - Generate a suggestions map[name]int then sort by the value
-		return
+		return sFinal, nil
 	}
 
 
@@ -430,4 +440,24 @@ func isTerminal(stdin *os.File) (bool, error) {
 
 	// if stdin is a CharDevice, return true
 	return ((stat.Mode() & os.ModeCharDevice) != 0), nil
+}
+
+// Make a custom slice that can be sorted by its levenshtein value
+type suggestionSlice []*suggestion
+
+type suggestion struct {
+	cmd string
+	levenshtein int
+}
+
+func (s suggestionSlice) Len() int {
+	return len(s)
+}
+
+func (s suggestionSlice) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s suggestionSlice) Less(i, j int) bool {
+	return s[i].levenshtein < s[j].levenshtein
 }

@@ -258,11 +258,9 @@ func parseArgs(inputs []string, stdin *os.File, argDefs []cmds.Argument, recursi
 		}
 
 		for name, _ := range root.Subcommands {
-			i := levenshtein.DistanceForStrings([]rune(arg), []rune(name), options)
-			// fmt.Printf("Comparing %s to %s: %d\n", arg, name, i)
-			if i <= MIN_LEVENSHTEIN {
-				// suggestions = append(suggestions, name)
-				sortableSuggestions = append(sortableSuggestions, &suggestion{name, i})
+			lev := levenshtein.DistanceForStrings([]rune(arg), []rune(name), options)
+			if lev <= MIN_LEVENSHTEIN {
+				sortableSuggestions = append(sortableSuggestions, &suggestion{name, lev})
 			}
 		}
 		sort.Sort(sortableSuggestions)

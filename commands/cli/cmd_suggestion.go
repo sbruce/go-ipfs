@@ -28,7 +28,7 @@ func (s suggestionSlice) Less(i, j int) bool {
 	return s[i].levenshtein < s[j].levenshtein
 }
 
-func searchUnknownCmd(args []string, root *cmds.Command) []string {
+func suggestUnknownCmd(args []string, root *cmds.Command) []string {
 	arg := args[0]
 	var suggestions []string
 	sortableSuggestions := make(suggestionSlice, 0)

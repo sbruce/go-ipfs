@@ -10,6 +10,8 @@ import (
 	cmds "github.com/ipfs/go-ipfs/commands"
 	files "github.com/ipfs/go-ipfs/commands/files"
 	u "github.com/ipfs/go-ipfs/util"
+	levenshtein "github.com/texttheater/golang-levenshtein/levenshtein"
+
 )
 
 // Parse parses the input commandline string (cmd, flags, and args).
@@ -227,11 +229,18 @@ func parseArgs(inputs []string, stdin *os.File, argDefs []cmds.Argument, recursi
 		numInputs += 1
 	}
 
-
-
-
 	searchUnknownCmd := func(args []string) (suggestions []string, err error) {
 		arg := args[0]
+		const MIN_LEVENSHTEIN = 4
+
+		var options levenshtein.Options = levenshtein.Options{
+				InsCost: 1,
+				DelCost: 3,
+				SubCost: 2,
+				Matches: func(sourceCharacter rune, targetCharacter rune) bool {
+					return sourceCharacter == targetCharacter
+				},
+		}
 
 		// Start with a simple strings.Contains check
 		for name, _ := range(root.Subcommands) {
@@ -240,6 +249,17 @@ func parseArgs(inputs []string, stdin *os.File, argDefs []cmds.Argument, recursi
 			}
 		}
 
+		// If the string compare returns a match 
+		if len(suggestions) > 0 {
+			return
+		}
+
+		for name, _ := range(root.Subcommands) {
+			i := levenshtein.DistanceForStrings([]rune(arg), []rune(name), options)
+			if i <= MIN_LEVENSHTEIN {
+				suggestions = append(suggestions, name)
+			}
+		}
 		return
 	}
 
@@ -250,8 +270,9 @@ func parseArgs(inputs []string, stdin *os.File, argDefs []cmds.Argument, recursi
 	if notVariadic && len(inputs) > len(argDefs) {
 		suggestions, _ := searchUnknownCmd(inputs)
 
-		//return nil, nil, fmt.Errorf("Expected %v arguments, got %v: %v", len(argDefs), len(inputs), inputs)
-		if len(suggestions) > 0 {
+		if len(suggestions) > 1 {
+			return nil, nil, fmt.Errorf("Unknown Command \"%v\"\n\nDid you mean any of these?\n\n\t%s", inputs[0], strings.Join(suggestions, "\n\t"))
+		} else if len(suggestions) > 0 {
 			return nil, nil, fmt.Errorf("Unknown Command \"%v\"\n\nDid you mean this?\n\n\t%s", inputs[0], suggestions[0])
 		} else {
 			return nil, nil, fmt.Errorf("Unknown Command \"%v\"\n", inputs[0])

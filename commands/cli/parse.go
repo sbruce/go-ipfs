@@ -231,7 +231,7 @@ func parseArgs(inputs []string, stdin *os.File, argDefs []cmds.Argument, recursi
 
 	searchUnknownCmd := func(args []string) (suggestions []string, err error) {
 		arg := args[0]
-		const MIN_LEVENSHTEIN = 4
+		const MIN_LEVENSHTEIN = 3
 
 		var options levenshtein.Options = levenshtein.Options{
 				InsCost: 1,
@@ -256,10 +256,13 @@ func parseArgs(inputs []string, stdin *os.File, argDefs []cmds.Argument, recursi
 
 		for name, _ := range(root.Subcommands) {
 			i := levenshtein.DistanceForStrings([]rune(arg), []rune(name), options)
+			// fmt.Printf("Comparing %s to %s: %d\n", arg, name, i)
 			if i <= MIN_LEVENSHTEIN {
 				suggestions = append(suggestions, name)
 			}
 		}
+		// TODO Sort the suggestions based on levenshtein 
+		// IDEA - Generate a suggestions map[name]int then sort by the value
 		return
 	}
 
